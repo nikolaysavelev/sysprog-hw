@@ -214,7 +214,7 @@ int mergesort(
 }
 
 static int
-quicksort_file(struct my_context *ctx)
+mergesort_file(struct my_context *ctx)
 {
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->start_time));
 
@@ -247,7 +247,7 @@ coroutine_func_f(void *context)
 
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->start_time));
 
-	quicksort_file(ctx);
+	mergesort_file(ctx);
 
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->end_time));
 	ctx->elapsed_time = get_elapsed_time(ctx->start_time, ctx->end_time);
