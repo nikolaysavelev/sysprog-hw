@@ -21,6 +21,7 @@ struct my_context {
 	struct int_array *array;
 	struct timespec start_time; 
     struct timespec end_time;
+	int context_switch_count;
 	double elapsed_time;
 };
 
@@ -30,6 +31,7 @@ my_context_new(const char *name, struct int_array *array)
 	struct my_context *ctx = malloc(sizeof(*ctx));
 	ctx->name = strdup(name);
 	ctx->array = array;
+	ctx->context_switch_count = 0;
 	return ctx;
 }
 
@@ -45,6 +47,51 @@ get_elapsed_time(struct timespec start, struct timespec end) {
     return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1.0e9;
 }
 
+int int_gt_comparator(const void *a, const void *b) {
+  return *(int *)a - *(int *)b;
+}
+
+void my_memcpy(void *_dst, void *_src, size_t n) {
+  char *dst = (char *)_dst;
+  char *src = (char *)_src;
+  while (n) {
+    *(dst++) = *(src++);
+    n--;
+  }
+}
+
+void merge(
+	void *left_start, void *right_start,
+	size_t left_size, size_t right_size,
+	size_t element_size,
+	int (*comparator)(const void *, const void *),
+	void *result)
+{
+	size_t cur_left = 0, cur_right = 0, cur_result = 0;
+	while (cur_left < left_size && cur_right < right_size) {
+		if (comparator(left_start + cur_left * element_size, right_start + cur_right * element_size) <= 0) {
+			my_memcpy(result + cur_result * element_size, left_start + cur_left * element_size, element_size);
+			cur_left++;
+		} else {
+			my_memcpy(result + cur_result * element_size, right_start + cur_right * element_size, element_size);
+			cur_right++;
+		}
+		cur_result++;
+	}
+
+	while (cur_left < left_size) {
+		my_memcpy(result + cur_result * element_size, left_start + cur_left * element_size, element_size);
+		cur_left++;
+		cur_result++;
+	}
+
+	while (cur_right < right_size) {
+		my_memcpy(result + cur_result * element_size, right_start + cur_right * element_size, element_size);
+		cur_right++;
+		cur_result++;
+	}
+}
+
 int
 read_file(struct my_context *ctx, struct int_array *res) {
 	FILE *infile = fopen(ctx->name, "r");
@@ -58,7 +105,7 @@ read_file(struct my_context *ctx, struct int_array *res) {
 	fseek(infile, 0, SEEK_SET);
 
 	size_t size = infile_size / sizeof(int);
-	printf("size in read_file: %zu", size);
+
 	int *numbers = (int*)malloc(infile_size);
 	if (numbers == NULL) {
 		printf("Error: memory allocation failed\n");
@@ -99,31 +146,43 @@ write_file(int *array, size_t len) {
 	return 0;
 }
 
-static void 
-quicksort(int *array, int low_idx, int high_idx) {
-    if (low_idx < high_idx) {
-        int ref_value = array[high_idx];
-        int i = low_idx - 1;
+int mergesort(
+    void *array,
+    size_t elements,
+    size_t element_size,
+    int (*comparator)(const void *, const void *)) {
+	
+	if (elements <= 1) {
+		return 0;
+	}
 
-        for (int j = low_idx; j < high_idx; j++) {
-            if (array[j] < ref_value) {
-                i++;
+	size_t middle = elements / 2;
+	void *left = array;
+	void *right = (char *)array + middle * element_size;
 
-                int temp = array[i];
-                array[i] = array[j];
-                array[j] = temp;
-            }
-        }
+	int mergesort_res;
+	mergesort_res = mergesort(left, middle, element_size, comparator);
+	if (mergesort_res == -1) {
+		return -1;
+	}
+	// coro_yield();
 
-        int temp = array[i + 1];
-        array[i + 1] = array[high_idx];
-        array[high_idx] = temp;
+	mergesort(right, elements - middle, element_size, comparator);
+	if (mergesort_res == -1) {
+		return -1;
+	}
+	// coro_yield();
 
-        int partitionIndex = i + 1;
+	void *temp = malloc(elements * element_size);
+	if (!temp) {
+		return -1;
+	}
+	merge(left, right, middle, elements - middle, element_size, comparator, temp);
+	my_memcpy(array, temp, elements * element_size);
+	free(temp);
 
-        quicksort(array, low_idx, partitionIndex - 1);
-        quicksort(array, partitionIndex + 1, high_idx);
-    }
+	//coro_yield();
+	return 0;
 }
 
 static int
@@ -134,7 +193,8 @@ quicksort_file(struct my_context *ctx) {
 		printf("Error reading from file %s", ctx->name);
 		return -1;
 	}
-	quicksort(ctx->array->numbers, 0, ctx->array->size - 1);
+
+	mergesort(ctx->array->numbers, ctx->array->size, sizeof(int), int_gt_comparator);
 
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->end_time));
     ctx->elapsed_time = get_elapsed_time(ctx->start_time, ctx->end_time);
@@ -157,63 +217,19 @@ coroutine_func_f(void *context)
 
 	printf("Started coroutine %s\n", name);
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->start_time));
-	
+
+	coro_yield();
 	quicksort_file(ctx);
 
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->end_time));
 	ctx->elapsed_time = get_elapsed_time(ctx->start_time, ctx->end_time);
-
-	printf("%s: switch count %lld\n", name, coro_switch_count(this));
+	ctx->context_switch_count += coro_switch_count(this);
+	printf("%s: switch count %d\n", name, ctx->context_switch_count);
 	printf("%s: yield\n", name);
-	coro_yield();
+	
 
 	my_context_delete(ctx);
 	return 0;
-}
-
-void my_memcpy(void *_dst, void *_src, size_t n) {
-  char *dst = (char *)_dst;
-  char *src = (char *)_src;
-  while (n) {
-    *(dst++) = *(src++);
-    n--;
-  }
-}
-
-int int_gt_comparator(const void *a, const void *b) {
-  return *(int *)a - *(int *)b;
-}
-
-void merge(
-	void *left_start, void *right_start,
-	size_t left_size, size_t right_size,
-	size_t element_size,
-	int (*comparator)(const void *, const void *),
-	void *result)
-{
-	size_t cur_left = 0, cur_right = 0, cur_result = 0;
-	while (cur_left < left_size && cur_right < right_size) {
-		if (comparator(left_start + cur_left * element_size, right_start + cur_right * element_size) <= 0) {
-			my_memcpy(result + cur_result * element_size, left_start + cur_left * element_size, element_size);
-			cur_left++;
-		} else {
-			my_memcpy(result + cur_result * element_size, right_start + cur_right * element_size, element_size);
-			cur_right++;
-		}
-		cur_result++;
-	}
-
-	while (cur_left < left_size) {
-		my_memcpy(result + cur_result * element_size, left_start + cur_left * element_size, element_size);
-		cur_left++;
-		cur_result++;
-	}
-
-	while (cur_right < right_size) {
-		my_memcpy(result + cur_result * element_size, right_start + cur_right * element_size, element_size);
-		cur_right++;
-		cur_result++;
-	}
 }
 
 int
@@ -226,16 +242,16 @@ main(int argc, char **argv)
 
 	/* Initialize our coroutine global cooperative scheduler. */
 	coro_sched_init();
-	//struct my_context coroData[argc - 1];
 
-	int files_num = argc - 2;
-	int files_offset = 2;
+	int files_num = argc - 1;
+	int files_offset = 1;
 
 	struct int_array **integers = malloc(sizeof(struct int_array) * (argc - 1));
 	/* Start several coroutines. */
 	for (int i = 0; i < files_num; ++i) {
 		struct int_array *array = malloc(sizeof(struct int_array));
         coro_new(coroutine_func_f, my_context_new(argv[i + files_offset], array));
+		integers[i] = array; 
 	}
 
 	/* Wait for all the coroutines to end. */
