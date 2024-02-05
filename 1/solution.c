@@ -47,17 +47,24 @@ get_elapsed_time(struct timespec start, struct timespec end) {
     return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1.0e9;
 }
 
+/*
+Пояснения к сортировке:
+У нас есть предмет "Углубленный C", на котором мы реализовывали вручную mergesort для разных типов данных.
+Компаратор, функции my_memcpy, merge и mergesort взяты оттуда.
+*/
+
 int int_gt_comparator(const void *a, const void *b) {
-  return *(int *)a - *(int *)b;
+	return *(int *)a - *(int *)b;
 }
 
 void my_memcpy(void *_dst, void *_src, size_t n) {
-  char *dst = (char *)_dst;
-  char *src = (char *)_src;
-  while (n) {
-    *(dst++) = *(src++);
-    n--;
-  }
+	char *dst = (char *)_dst;
+	char *src = (char *)_src;
+
+	while (n) {
+		*(dst++) = *(src++);
+		n--;
+	}
 }
 
 void merge(
@@ -165,13 +172,13 @@ int mergesort(
 	if (mergesort_res == -1) {
 		return -1;
 	}
-	// coro_yield();
+	coro_yield();
 
 	mergesort(right, elements - middle, element_size, comparator);
 	if (mergesort_res == -1) {
 		return -1;
 	}
-	// coro_yield();
+	coro_yield();
 
 	void *temp = malloc(elements * element_size);
 	if (!temp) {
@@ -181,7 +188,6 @@ int mergesort(
 	my_memcpy(array, temp, elements * element_size);
 	free(temp);
 
-	//coro_yield();
 	return 0;
 }
 
@@ -215,20 +221,17 @@ coroutine_func_f(void *context)
 	struct my_context *ctx = context;
 	char *name = ctx->name;
 
-	printf("Started coroutine %s\n", name);
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->start_time));
 
-	coro_yield();
 	quicksort_file(ctx);
 
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->end_time));
 	ctx->elapsed_time = get_elapsed_time(ctx->start_time, ctx->end_time);
 	ctx->context_switch_count += coro_switch_count(this);
-	printf("%s: switch count %d\n", name, ctx->context_switch_count);
 	printf("%s: yield\n", name);
 	
-
 	my_context_delete(ctx);
+
 	return 0;
 }
 
@@ -239,6 +242,9 @@ main(int argc, char **argv)
         printf("Incorrect amount of input args!\n");
         return EXIT_FAILURE;
     }
+
+	struct timespec start;
+	clock_gettime(CLOCK_MONOTONIC, &(start));
 
 	/* Initialize our coroutine global cooperative scheduler. */
 	coro_sched_init();
@@ -262,10 +268,11 @@ main(int argc, char **argv)
 		 * do anything you want. Like check its exit status, for
 		 * example. Don't forget to free the coroutine afterwards.
 		 */
-		printf("Finished %d\n", coro_status(c));
+		printf("Finished, code: %d, switched coro: %lld\n", coro_status(c), coro_switch_count(c));
+		printf("==========\n");
 		coro_delete(c);
 	}
-	
+
 	int *result_array = malloc(0);
 	int result_length = 0;
 
@@ -287,6 +294,10 @@ main(int argc, char **argv)
 
 	free(result_array);
 	free(integers);
+
+	struct timespec end;
+	clock_gettime(CLOCK_MONOTONIC, &(end));
+	printf("Total time: %.6f sec\n", get_elapsed_time(start, end));
 
     return 0;
 }
