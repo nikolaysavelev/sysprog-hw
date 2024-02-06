@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include "libcoro.h"
+#include <time.h>
 
 #define handle_error() ({printf("Error %s\n", strerror(errno)); exit(-1);})
 
@@ -26,7 +27,30 @@ struct coro {
 	long long switch_count;
 	/** Links in the coroutine list, used by scheduler. */
 	struct coro *next, *prev;
+
+	long long left_timeperiod;
+	long long full_timeperiod;
+	long long last_checked_at;
 };
+
+void yield_coro_period_end() {
+	struct timespec t_time;
+	clock_gettime(CLOCK_MONOTONIC, &t_time);
+
+	struct coro *this = coro_this();
+
+	long long current_ts = (t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000);
+
+	long long coro_worked = current_ts - this->last_checked_at;
+	this->last_checked_at = current_ts;
+
+	this->left_timeperiod = this->left_timeperiod - coro_worked;
+	if (this->left_timeperiod < 0) {
+		this->left_timeperiod = this->full_timeperiod;
+		coro_yield();
+	return;
+	}
+}
 
 /**
  * Scheduler is a main coroutine - it catches and returns dead
@@ -175,6 +199,12 @@ coro_body(int signum)
 	coro_this_ptr = c;
 	c->ret = c->func(c->func_arg);
 	c->is_finished = true;
+
+	struct timespec t_time;
+	clock_gettime(CLOCK_MONOTONIC, &t_time);
+	long long current_ts = (t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000);
+	c->last_checked_at = current_ts;
+
 	/* Can not return - 'ret' address is invalid already! */
 	if (! is_sched_waiting) {
 		printf("Critical error - no place to return!\n");

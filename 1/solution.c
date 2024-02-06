@@ -189,14 +189,14 @@ int mergesort(
 	{
 		return -1;
 	}
-	coro_yield();
+	yield_coro_period_end();
 
 	mergesort(right, elements - middle, element_size, comparator);
 	if (mergesort_res == -1)
 	{
 		return -1;
 	}
-	coro_yield();
+	yield_coro_period_end();
 
 	void *temp = malloc(elements * element_size);
 	if (!temp)
@@ -213,21 +213,19 @@ int mergesort(
 static int
 mergesort_file(struct my_context *ctx)
 {
-	clock_gettime(CLOCK_MONOTONIC, &(ctx->start_time));
-
 	if (read_file(ctx, ctx->array) != 0)
 	{
 		printf("Error reading from file %s", ctx->name);
 		return -1;
 	}
 
+	clock_gettime(CLOCK_MONOTONIC, &(ctx->start_time));
+
 	mergesort(ctx->array->numbers, ctx->array->size, sizeof(int), int_gt_comparator);
 
 	clock_gettime(CLOCK_MONOTONIC, &(ctx->end_time));
 	ctx->elapsed_time = get_elapsed_time(ctx->start_time, ctx->end_time);
-
 	printf("Sorted %s in %.6f sec\n", ctx->name, ctx->elapsed_time);
-
 	return 0;
 }
 
@@ -242,14 +240,11 @@ coroutine_func_f(void *context)
 	struct my_context *ctx = context;
 	char *name = ctx->name;
 
-	clock_gettime(CLOCK_MONOTONIC, &(ctx->start_time));
-
+	yield_coro_period_end();
 	mergesort_file(ctx);
 
-	clock_gettime(CLOCK_MONOTONIC, &(ctx->end_time));
-	ctx->elapsed_time = get_elapsed_time(ctx->start_time, ctx->end_time);
-	ctx->context_switch_count += coro_switch_count(this);
 	printf("%s: yield\n", name);
+	ctx->context_switch_count += coro_switch_count(this);
 
 	my_context_delete(ctx);
 
