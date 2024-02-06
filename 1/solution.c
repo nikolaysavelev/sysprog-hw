@@ -120,27 +120,24 @@ int read_file(struct my_context *ctx, struct int_array *res)
 		return -1;
 	}
 
-	fseek(infile, 0, SEEK_END);
-	long infile_size = ftell(infile);
-	fseek(infile, 0, SEEK_SET);
+	size_t cap = 15, size = 0;
+	int *numbers = malloc(cap * sizeof(int));
+	
+	int number;
+	while (fscanf(infile, "%d", &number) == 1) {
+		numbers[size++] = number;
 
-	size_t size = infile_size / sizeof(int);
-
-	int *numbers = (int *)malloc(infile_size);
-	if (numbers == NULL)
-	{
-		printf("Error: memory allocation failed\n");
-		fclose(infile);
-		return -1;
-	}
-
-	size_t elements_read = fread(numbers, sizeof(int), size, infile);
-	if (elements_read != size)
-	{
-		printf("Error: failed to read all elements from file\n");
-		fclose(infile);
-		free(numbers);
-		return -1;
+		if (size >= cap) {
+			cap *= 2;
+			int* temp = realloc(numbers, cap * sizeof(int));
+			if (temp == NULL) {
+				printf("Error allocating memory\n");
+				free(numbers);
+				fclose(infile);
+				return -1;
+			}
+			numbers = temp;
+		}
 	}
 
 	res->numbers = numbers;
