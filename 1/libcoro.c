@@ -10,6 +10,7 @@
 
 #define handle_error() ({printf("Error %s\n", strerror(errno)); exit(-1);})
 
+
 /** Main coroutine structure, its context. */
 struct coro {
 	/** A value, returned by func. */
@@ -28,9 +29,10 @@ struct coro {
 	/** Links in the coroutine list, used by scheduler. */
 	struct coro *next, *prev;
 
+	long long last_checked;
 	long long left_timeperiod;
 	long long full_timeperiod;
-	long long last_checked_at;
+  	long long time_total;
 };
 
 void yield_coro_period_end() {
@@ -38,12 +40,12 @@ void yield_coro_period_end() {
 	clock_gettime(CLOCK_MONOTONIC, &t_time);
 
 	struct coro *this = coro_this();
+	long long current_time = (t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000);
 
-	long long current_ts = (t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000);
+	long long coro_worked = current_time - this->last_checked;
+	this->last_checked = current_time;
 
-	long long coro_worked = current_ts - this->last_checked_at;
-	this->last_checked_at = current_ts;
-
+	this->time_total += coro_worked;
 	this->left_timeperiod = this->left_timeperiod - coro_worked;
 	if (this->left_timeperiod < 0) {
 		this->left_timeperiod = this->full_timeperiod;
@@ -109,6 +111,12 @@ coro_switch_count(const struct coro *c)
 	return c->switch_count;
 }
 
+long long
+coro_time_working(const struct coro *c) 
+{
+	return c->time_total;
+}
+
 bool
 coro_is_finished(const struct coro *c)
 {
@@ -128,6 +136,11 @@ coro_yield_to(struct coro *to)
 {
 	struct coro *from = coro_this_ptr;
 	++from->switch_count;
+
+	struct timespec t_time;
+	clock_gettime(CLOCK_MONOTONIC, &t_time);
+	to->last_checked = t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000;
+
 	if (sigsetjmp(from->ctx, 0) == 0)
 		siglongjmp(to->ctx, 1);
 	coro_this_ptr = from;
@@ -202,8 +215,8 @@ coro_body(int signum)
 
 	struct timespec t_time;
 	clock_gettime(CLOCK_MONOTONIC, &t_time);
-	long long current_ts = (t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000);
-	c->last_checked_at = current_ts;
+	long long current_time = (t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000);
+	c->last_checked = current_time;
 
 	/* Can not return - 'ret' address is invalid already! */
 	if (! is_sched_waiting) {
@@ -226,6 +239,7 @@ coro_new(coro_f func, void *func_arg)
 	c->func_arg = func_arg;
 	c->is_finished = false;
 	c->switch_count = 0;
+  	c->time_total = 0;
 	/*
 	 * SIGUSR2 is used. First of all, block new signals to be
 	 * able to set a new handler.

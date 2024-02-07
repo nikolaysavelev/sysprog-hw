@@ -38,6 +38,10 @@ coro_switch_count(const struct coro *c);
 bool
 coro_is_finished(const struct coro *c);
 
+/** Count time coro working */
+long long
+coro_time_working(const struct coro *c);
+
 /** Free coroutine stack and it itself. */
 void
 coro_delete(struct coro *c);
@@ -46,4 +50,7 @@ coro_delete(struct coro *c);
 void
 coro_yield(void);
 
-void yield_coro_period_end();
+void 
+yield_coro_period_end();
+
+

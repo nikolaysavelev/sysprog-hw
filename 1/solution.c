@@ -37,17 +37,17 @@ my_context_new(const char *name, struct int_array *array)
 	return ctx;
 }
 
+static double 
+get_elapsed_time(struct timespec start, struct timespec end)
+{
+	return 1.0e6 * ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec)) / 1.0e9;
+}
+
 static void
 my_context_delete(struct my_context *ctx)
 {
 	free(ctx->name);
 	free(ctx);
-}
-
-static double
-get_elapsed_time(struct timespec start, struct timespec end)
-{
-	return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1.0e9;
 }
 
 /*
@@ -219,13 +219,8 @@ mergesort_file(struct my_context *ctx)
 		return -1;
 	}
 
-	clock_gettime(CLOCK_MONOTONIC, &(ctx->start_time));
-
 	mergesort(ctx->array->numbers, ctx->array->size, sizeof(int), int_gt_comparator);
 
-	clock_gettime(CLOCK_MONOTONIC, &(ctx->end_time));
-	ctx->elapsed_time = get_elapsed_time(ctx->start_time, ctx->end_time);
-	printf("Sorted %s in %.6f sec\n", ctx->name, ctx->elapsed_time);
 	return 0;
 }
 
@@ -286,7 +281,7 @@ int main(int argc, char **argv)
 		 * do anything you want. Like check its exit status, for
 		 * example. Don't forget to free the coroutine afterwards.
 		 */
-		printf("Finished, code: %d, switched coro: %lld\n", coro_status(c), coro_switch_count(c));
+		printf("Finished, code: %d, switched coro: %lld, time_worked: %lld us\n", coro_status(c), coro_switch_count(c), coro_time_working(c));
 		printf("==========\n");
 		coro_delete(c);
 	}
@@ -317,7 +312,7 @@ int main(int argc, char **argv)
 
 	struct timespec end;
 	clock_gettime(CLOCK_MONOTONIC, &(end));
-	printf("Total time: %.6f sec\n", get_elapsed_time(start, end));
+	printf("Total time: %.f us\n", get_elapsed_time(start, end));
 
 	return 0;
 }
