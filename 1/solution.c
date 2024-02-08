@@ -44,7 +44,7 @@ my_context_delete(struct my_context *ctx)
 	free(ctx);
 }
 
-/*
+/*н
 Пояснения к сортировке:
 У нас есть предмет "Углубленный C", на котором мы реализовывали вручную mergesort для разных типов данных.
 Компаратор, функции my_memcpy, merge и mergesort взяты оттуда.
@@ -114,7 +114,7 @@ int read_file(struct my_context *ctx, struct int_array *res)
 		return -1;
 	}
 
-	size_t cap = 15, size = 0;
+	size_t cap = 10, size = 0;
 	int *numbers = malloc(cap * sizeof(int));
 	
 	int number;
@@ -132,6 +132,12 @@ int read_file(struct my_context *ctx, struct int_array *res)
 			}
 			numbers = temp;
 		}
+	}
+	
+	if (ferror(infile) != 0) {
+		fclose(infile);
+		free(numbers);
+		return 1;
 	}
 
 	res->numbers = numbers;
