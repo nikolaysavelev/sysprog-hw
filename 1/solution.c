@@ -37,12 +37,6 @@ my_context_new(const char *name, struct int_array *array)
 	return ctx;
 }
 
-static double 
-get_elapsed_time(struct timespec start, struct timespec end)
-{
-	return 1.0e6 * ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec)) / 1.0e9;
-}
-
 static void
 my_context_delete(struct my_context *ctx)
 {
@@ -255,7 +249,8 @@ int main(int argc, char **argv)
 	}
 
 	struct timespec start;
-	clock_gettime(CLOCK_MONOTONIC, &(start));
+	clock_gettime(CLOCK_MONOTONIC, &start);
+  	long long start_time = (start.tv_sec * 1000000 + start.tv_nsec / 1000);
 
 	/* Initialize our coroutine global cooperative scheduler. */
 	coro_sched_init();
@@ -312,7 +307,8 @@ int main(int argc, char **argv)
 
 	struct timespec end;
 	clock_gettime(CLOCK_MONOTONIC, &(end));
-	printf("Total time: %.f us\n", get_elapsed_time(start, end));
+	long long total_program_worked = (end.tv_sec * 1000000 + end.tv_nsec / 1000) - start_time;
+	printf("Total time: %lld us\n", total_program_worked);
 
 	return 0;
 }
