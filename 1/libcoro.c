@@ -50,7 +50,9 @@ void yield_coro_period_end() {
 	if (this->left_timeperiod < 0) {
 		this->left_timeperiod = this->full_timeperiod;
 		coro_yield();
-	return;
+		clock_gettime(CLOCK_MONOTONIC, &t_time);
+		this->last_checked = (t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000);
+		return;
 	}
 }
 
@@ -216,6 +218,9 @@ coro_body(int signum)
 	struct timespec t_time;
 	clock_gettime(CLOCK_MONOTONIC, &t_time);
 	long long current_time = (t_time.tv_sec * 1000000 + t_time.tv_nsec / 1000);
+	long long coro_worked = current_time - c->last_checked;
+
+	c->time_total += coro_worked;
 	c->last_checked = current_time;
 
 	/* Can not return - 'ret' address is invalid already! */

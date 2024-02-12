@@ -21,10 +21,6 @@ struct my_context
 {
 	char *name;
 	struct int_array *array;
-	struct timespec start_time;
-	struct timespec end_time;
-	int context_switch_count;
-	double elapsed_time;
 };
 
 static struct my_context *
@@ -33,7 +29,6 @@ my_context_new(const char *name, struct int_array *array)
 	struct my_context *ctx = malloc(sizeof(*ctx));
 	ctx->name = strdup(name);
 	ctx->array = array;
-	ctx->context_switch_count = 0;
 	return ctx;
 }
 
@@ -115,7 +110,12 @@ int read_file(struct my_context *ctx, struct int_array *res)
 	}
 
 	size_t cap = 10, size = 0;
-	int *numbers = malloc(cap * sizeof(int));
+	int *numbers = (int *)malloc(cap * sizeof(int));
+
+	if (numbers == NULL) {
+		fclose(infile);
+		return -1;
+	}
 	
 	int number;
 	while (fscanf(infile, "%d", &number) == 1) {
@@ -137,7 +137,7 @@ int read_file(struct my_context *ctx, struct int_array *res)
 	if (ferror(infile) != 0) {
 		fclose(infile);
 		free(numbers);
-		return 1;
+		return -1;
 	}
 
 	res->numbers = numbers;
@@ -210,20 +210,6 @@ int mergesort(
 	return 0;
 }
 
-static int
-mergesort_file(struct my_context *ctx)
-{
-	if (read_file(ctx, ctx->array) != 0)
-	{
-		printf("Error reading from file %s", ctx->name);
-		return -1;
-	}
-
-	mergesort(ctx->array->numbers, ctx->array->size, sizeof(int), int_gt_comparator);
-
-	return 0;
-}
-
 /**
  * Coroutine body. This code is executed by all the coroutines. Here you
  * implement your solution, sort each individual file.
@@ -231,15 +217,19 @@ mergesort_file(struct my_context *ctx)
 static int
 coroutine_func_f(void *context)
 {
-	struct coro *this = coro_this();
 	struct my_context *ctx = context;
 	char *name = ctx->name;
 
+	if (read_file(ctx, ctx->array) != 0)
+	{
+		printf("Error reading from file %s", ctx->name);
+		return -1;
+	}
+
 	yield_coro_period_end();
-	mergesort_file(ctx);
+	mergesort(ctx->array->numbers, ctx->array->size, sizeof(int), int_gt_comparator);
 
 	printf("%s: yield\n", name);
-	ctx->context_switch_count += coro_switch_count(this);
 
 	my_context_delete(ctx);
 
@@ -254,12 +244,12 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	struct timespec start;
-	clock_gettime(CLOCK_MONOTONIC, &start);
-  	long long start_time = (start.tv_sec * 1000000 + start.tv_nsec / 1000);
-
 	/* Initialize our coroutine global cooperative scheduler. */
 	coro_sched_init();
+
+	struct timespec time;
+	clock_gettime(CLOCK_MONOTONIC, &time);
+  	long long start_time = (time.tv_sec * 1000000 + time.tv_nsec / 1000);
 
 	int files_num = argc - 1;
 	int files_offset = 1;
@@ -311,9 +301,8 @@ int main(int argc, char **argv)
 	free(result_array);
 	free(integers);
 
-	struct timespec end;
-	clock_gettime(CLOCK_MONOTONIC, &(end));
-	long long total_program_worked = (end.tv_sec * 1000000 + end.tv_nsec / 1000) - start_time;
+	clock_gettime(CLOCK_MONOTONIC, &(time));
+	long long total_program_worked = (time.tv_sec * 1000000 + time.tv_nsec / 1000) - start_time;
 	printf("Total time: %lld us\n", total_program_worked);
 
 	return 0;
