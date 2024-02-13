@@ -44,8 +44,8 @@ void yield_coro_period_end() {
 
 	long long coro_worked = current_time - this->last_checked;
 	this->last_checked = current_time;
-
 	this->time_total += coro_worked;
+
 	this->left_timeperiod = this->left_timeperiod - coro_worked;
 	if (this->left_timeperiod < 0) {
 		this->left_timeperiod = this->full_timeperiod;
@@ -245,6 +245,8 @@ coro_new(coro_f func, void *func_arg)
 	c->is_finished = false;
 	c->switch_count = 0;
   	c->time_total = 0;
+	c->left_timeperiod = 0;
+	c->full_timeperiod = 0;
 	/*
 	 * SIGUSR2 is used. First of all, block new signals to be
 	 * able to set a new handler.
