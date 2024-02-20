@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h> // DELETE
 
 struct parser {
 	char *buffer;
@@ -44,13 +45,32 @@ token_strdup(const struct token *t)
 static void
 token_append(struct token *t, char c)
 {
-	if (t->size == t->capacity) {
-		t->capacity = (t->capacity + 1) * 2;
-		t->data = realloc(t->data, sizeof(*t->data) * t->capacity);
-	} else {
-		assert(t->size < t->capacity);
+	if (t->type == TOKEN_TYPE_NONE && (c == '\'' || c == '"')) { // handle quoted strings
+		t->type = TOKEN_TYPE_STR;
+		t->size = 1;
+		t->capacity = 1;
+		t->data = malloc(sizeof(*t->data) * (t->capacity + 1));
+		t->data[0] = c;
 	}
-	t->data[t->size++] = c;
+	else if (t->type == TOKEN_TYPE_STR) {
+		if (t->size == t->capacity) {
+			t->capacity = (t->capacity + 1) * 2;
+			t->data = realloc(t->data, sizeof(*t->data) * t->capacity);
+		} else {
+			assert(t->size < t->capacity);
+		}
+		t->data[t->size++] = c;
+	}
+	else {
+		if (t->size == t->capacity) {
+			t->capacity = (t->capacity + 1) * 2;
+			t->data = realloc(t->data, sizeof(*t->data) * t->capacity);
+		} else {
+			assert(t->size < t->capacity);
+		}
+		t->data[t->size++] = c;
+		t->type = TOKEN_TYPE_STR;
+	}
 }
 
 static void
@@ -65,10 +85,14 @@ command_append_arg(struct command *cmd, char *arg)
 {
 	if (cmd->arg_count == cmd->arg_capacity) {
 		cmd->arg_capacity = (cmd->arg_capacity + 1) * 2;
-		cmd->args = realloc(cmd->args, sizeof(*cmd->args) * cmd->arg_capacity);
-	} else {
-		assert(cmd->arg_count < cmd->arg_capacity);
+		cmd->args = realloc(cmd->args, sizeof(*cmd->args) * (cmd->arg_capacity + 1));
+		if (cmd->args == NULL) {
+            perror("realloc");
+            exit(EXIT_FAILURE);
+        }
 	}
+
+	assert(cmd->arg_count < cmd->arg_capacity);
 	cmd->args[cmd->arg_count++] = arg;
 }
 
