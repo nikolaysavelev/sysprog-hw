@@ -100,7 +100,7 @@ execute_command(const struct command *cmd) {
 			fprintf(stderr, "execute_command: Missing executable name\n");
 			exit(EXIT_FAILURE);
 		}
-
+/*
 		// Отладка, убрать потом
 		printf("execvp cmd: %s\n", cmd->exe);
 		for (uint32_t i = 0; i < cmd->arg_count; ++i) {
@@ -108,12 +108,15 @@ execute_command(const struct command *cmd) {
 		}
 		printf("execvp args size: %d\n", cmd->arg_count);
 		//
-
+*/
 		char** args = add_cmd_name_to_args(cmd);
 
 		if (execvp(cmd->exe, args) == -1) {
 			perror("execvp");
 			exit(EXIT_FAILURE);
+		}
+		else {
+			exit(EXIT_SUCCESS);
 		}
 	}
 	else {
@@ -128,107 +131,85 @@ execute_command(const struct command *cmd) {
 static void
 execute_command_line(const struct command_line *line)
 {
-	/* REPLACE THIS CODE WITH ACTUAL COMMAND EXECUTION */
-
 	assert(line != NULL);
-
-	if (line->head != NULL && line->head->type == EXPR_TYPE_COMMAND && 
-		strcmp(line->head->cmd.exe, "cd") == 0 && line->head->next == NULL) {
-			execute_cd(&line->head->cmd);
-			return;
-	}
-
-	if (line->head != NULL && line->head->type == EXPR_TYPE_COMMAND && 
-		strcmp(line->head->cmd.exe, "exit") == 0 && line->head->next == NULL) {
-			execute_exit(&line->head->cmd);
-			return;
-	}
-
-/*
-	printf("================================\n");
-	printf("Command line:\n");
-	printf("Is background: %d\n", (int)line->is_background);
-	printf("Output: ");
-	if (line->out_type == OUTPUT_TYPE_STDOUT) {
-		printf("stdout\n");
-	} else if (line->out_type == OUTPUT_TYPE_FILE_NEW) {
-		printf("new file - \"%s\"\n", line->out_file);
-	} else if (line->out_type == OUTPUT_TYPE_FILE_APPEND) {
-		printf("append file - \"%s\"\n", line->out_file);
-	} else {
-		assert(false);
-	}
-	printf("Expressions:\n");
-*/
 	const struct expr *e = line->head;
+	int pipefd[2], lastfd = -1;
+
+	if (e != NULL && e->type == EXPR_TYPE_COMMAND && 
+		strcmp(e->cmd.exe, "cd") == 0 && e->next == NULL) {
+			execute_cd(&e->cmd);
+			return;
+	}
+
+	if (e != NULL && e->type == EXPR_TYPE_COMMAND && 
+		strcmp(e->cmd.exe, "exit") == 0 && e->next == NULL) {
+			execute_exit(&e->cmd);
+			return;
+	}
+
 	while (e != NULL) {
 		if (e->type == EXPR_TYPE_COMMAND) {
-			execute_command(&e->cmd);
-		} 
-		
-		else if (e->type == EXPR_TYPE_PIPE) {
-			int pipefd[2];
-
-			if (pipe(pipefd) == -1) {
-				perror("pipe");
-				exit(EXIT_FAILURE);
-			}
-
-			pid_t ch_pid = fork();
-
-			if (ch_pid == -1) {
-				perror("fork");
-				exit(EXIT_FAILURE);
-			}
-			else if (ch_pid == 0) {
-				if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
-					perror("dup2");
+			if (e->next && e->next->type == EXPR_TYPE_PIPE) {
+				if (pipe(pipefd) == -1) {
+					perror("pipe");
 					exit(EXIT_FAILURE);
 				}
-				close(pipefd[0]);
-				close(pipefd[1]);
+			}
+
+			pid_t pid = fork();
+			if (pid == -1) {
+				perror("FORK");
+				exit(EXIT_FAILURE);
+			}
+			else if (pid == 0) {
+				if (lastfd != -1) {
+					dup2(lastfd, STDIN_FILENO);
+					close(lastfd);
+				}
+
+				int outfd = STDOUT_FILENO;
+				if (e->next == NULL || e->next->type != EXPR_TYPE_PIPE) {
+					if (line->out_type == OUTPUT_TYPE_FILE_NEW) {
+						outfd = open(line->out_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+					}
+					else if (line->out_type == OUTPUT_TYPE_FILE_APPEND) { 
+						outfd = open(line->out_file, O_WRONLY | O_CREAT | O_APPEND, 0644);
+					}
+					if (outfd == -1) {
+						perror("open");
+						exit(EXIT_FAILURE);
+					}
+					dup2(outfd, STDOUT_FILENO);
+					if (outfd != STDOUT_FILENO) {
+						close(outfd);
+					}
+				}
 				execute_command(&e->cmd);
-				exit(EXIT_SUCCESS);
 			}
 			else {
-				pid_t pid = fork();
-				
-				if (pid == 0) {
-					if (dup2(pipefd[0], STDIN_FILENO) == -1) {
-						perror("dup2");
-						exit(EXIT_FAILURE);
-					}
+				if (lastfd != -1) {
+					close(lastfd);
+				}
+				if (e->next && e->next->type == EXPR_TYPE_PIPE) {
+					lastfd = pipefd[0];
 					close(pipefd[1]);
-					close(pipefd[0]);
-					execute_command(&e->cmd);
-					exit(EXIT_SUCCESS);
 				}
 				else {
-					int status;
-					close(pipefd[0]);
-					close (pipefd[1]);
-					if (waitpid(ch_pid, &status, 0) == -1) {
-						perror("waitpid");
-						exit(EXIT_FAILURE);
-					}
+					lastfd = -1;
 				}
-			}
+				int status;
+				if (waitpid(pid, &status, 0) == -1) {
+					perror("waitpid");
+					exit(EXIT_FAILURE);
+				}
+			}	
 		} 
-
-		else if (e->type == EXPR_TYPE_AND) {
-			printf("\tAND\n");
-		} 
-		
-		else if (e->type == EXPR_TYPE_OR) {
-			printf("\tOR\n");
-		} 
-		
-		else {
-			assert(false);
-			// fprintf(stderr, "command not found: %s\n", line->head->cmd.exe);
-		}
 
 		e = e->next;
+
+		if (lastfd != -1) {
+        	close(lastfd);
+    	}	
 	}
 }
 
@@ -239,6 +220,7 @@ main(void)
 	char buf[buf_size];
 	int rc;
 	struct parser *p = parser_new();
+
 	while ((rc = read(STDIN_FILENO, buf, buf_size)) > 0) {
 		parser_feed(p, buf, rc);
 		struct command_line *line = NULL;
