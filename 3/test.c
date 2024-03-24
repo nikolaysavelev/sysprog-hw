@@ -306,10 +306,10 @@ test_max_file_size(void)
 	unit_test_finish();
 }
 
+#ifdef NEED_OPEN_FLAGS
 static void
 test_rights(void)
 {
-#ifdef NEED_OPEN_FLAGS
 	unit_test_start();
 
 	int fd = ufs_open("file", UFS_CREATE);
@@ -378,13 +378,13 @@ test_rights(void)
 
 	unit_fail_if(ufs_delete("file") != 0);
 	unit_test_finish();
-#endif
 }
+#endif
 
+#ifdef NEED_RESIZE
 static void
 test_resize(void)
 {
-#ifdef NEED_RESIZE
 	unit_test_start();
 	/*
 	 * One descriptor for shrinking and then access again.
@@ -438,8 +438,8 @@ test_resize(void)
 	unit_fail_if(ufs_delete("file") != 0);
 
 	unit_test_finish();
-#endif
 }
+#endif
 
 int
 main(void)
