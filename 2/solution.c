@@ -11,14 +11,14 @@
 #include <errno.h>
 
 static int
-execute_cd(const struct command *cmd) {
-	if (cmd->arg_count == 1) {
-		if (chdir(cmd->args[0]) == 0) {
+execute_cd(const struct expr *e) {
+	if (e->cmd.arg_count == 1) {
+		if (chdir(e->cmd.args[0]) == 0) {
 			return 0;
 		}
 		else {
 			if (errno == ENOENT) {
-				fprintf(stderr, "cd: no such file or directory: %s\n", cmd->args[0]);
+				fprintf(stderr, "cd: no such file or directory: %s\n", e->cmd.args[0]);
 				return 1;
 			}
 			else {
@@ -28,12 +28,12 @@ execute_cd(const struct command *cmd) {
 		}
 	}
 
-	else if (cmd->arg_count > 1) {
+	else if (e->cmd.arg_count > 1) {
 		fprintf(stderr, "cd: too many arguments\n");
 		return -1;
 	}
 
-	else if (cmd->arg_count == 0) {
+	else if (e->cmd.arg_count == 0) {
 		if (chdir(getenv("HOME")) == 0) {
 			return 0;
 		}
@@ -50,20 +50,17 @@ execute_cd(const struct command *cmd) {
 	return 0;
 }
 
-static int
-execute_exit(const struct command *cmd) {
-	if (cmd->arg_count > 1) {
-		fprintf(stderr, "exit: too many arguments\n");
-		return -1;
+void
+execute_exit(const struct expr *e) {
+	if (e->cmd.arg_count == 0) { 
+		exit(0);
 	}
-	else {
-		exit(EXIT_SUCCESS);
-	}
-	return 0;
+
+	exit(atoi(e->cmd.args[0]));
 }
 
 static void
-execute_command(const struct command *cmd) {
+execute_command(const struct expr *e) {
 /*
 		// Отладка
 		printf("execvp cmd: %s\n", cmd->exe);
@@ -73,29 +70,26 @@ execute_command(const struct command *cmd) {
 		printf("execvp args size: %d\n", cmd->arg_count);
 		//
 */
-	char *temp[cmd->arg_count + 2];
-	temp[0] = cmd->exe;
 
-	for (uint32_t i = 0; i < cmd->arg_count; ++i)
-	{
-		temp[i + 1] = strdup(cmd->args[i]);
-	}
-	temp[cmd->arg_count + 1] = NULL;
-
-	if (execvp(cmd->exe, temp) == -1) {
-		perror("execvp");
-		exit(EXIT_FAILURE);
+	if (!strcmp(e->cmd.exe, "exit")) {
+		execute_exit(e);
+		return;
 	}
 
-	for (uint32_t i = 0; i < cmd->arg_count; ++i) {
-		free(temp[i + 1]);
+	char *temp[e->cmd.arg_count + 2];
+	temp[0] = e->cmd.exe;
+
+	for (uint32_t i = 0; i < e->cmd.arg_count; ++i) {
+		temp[i + 1] = e->cmd.args[i];
 	}
+	temp[e->cmd.arg_count + 1] = NULL;
+
+	execvp(e->cmd.exe, temp);
 }
 
 static int
 execute_command_line(const struct command_line *line)
 {
-	assert(line != NULL);
 	const struct expr *e = line->head;
 	int pipefd[2];
 	int proc_wait = 1;
@@ -112,23 +106,44 @@ execute_command_line(const struct command_line *line)
 				}
 			}
 
-			if (e->type == EXPR_TYPE_COMMAND && strcmp(e->cmd.exe, "cd") == 0) {
-				execute_cd(&e->cmd);
-			}
+			if (!strcmp(e->cmd.exe, "exit") && !e->next) {
+				for (int i = 0; i < proc_wait; ++i) {
+					int status;
+					int wait_pid = wait(&status);
+					if (wait_pid == pid) {
+						last_status = WEXITSTATUS(status);
+					}
+				}
 
-			else if (e->type == EXPR_TYPE_COMMAND && strcmp(e->cmd.exe, "exit") == 0) {
-				execute_exit(&e->cmd);
-			}
+				if (e->cmd.arg_count == 0) {
+					last_status = 0;
+				} 
+				else {
+					last_status = atoi(e->cmd.args[0]);
+				}
 
+				if (e == line->head) {
+					exit(last_status);
+				}
+
+				return last_status;
+			} 
+			
+			else if (strcmp(e->cmd.exe, "cd") == 0) {
+				execute_cd(e);
+			}
+			
 			else {
 				pid = fork();
 				if (pid == -1) {
+					printf("HERE 1");
 					perror("FORK");
 					exit(EXIT_FAILURE);
 				}
 
 				else if (pid == 0) {
 					if (pipe_stdin != 0) {
+						printf("HERE 2");
 						dup2(pipe_stdin, STDIN_FILENO);
 						close(pipe_stdin);
 						pipe_stdin = 0;
@@ -136,20 +151,25 @@ execute_command_line(const struct command_line *line)
 
 					int outfd = STDOUT_FILENO;
 					if (line->out_type == OUTPUT_TYPE_FILE_NEW) {
-						outfd = open(line->out_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+						printf("HERE 3");
+						outfd = open(line->out_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 					}
 					else if (line->out_type == OUTPUT_TYPE_FILE_APPEND) { 
-						outfd = open(line->out_file, O_WRONLY | O_CREAT | O_APPEND, 0644);
+						printf("HERE 4");
+						outfd = open(line->out_file, O_APPEND | O_RDWR | O_APPEND, 0644);
 					}
 					if (e->next && e->next->type == EXPR_TYPE_PIPE) {
+						printf("HERE 5");
 						close(pipefd[0]);
 						outfd = pipefd[1];
 					}
 					if (outfd != STDOUT_FILENO) {
+						printf("HERE 6");
 						dup2(outfd, STDOUT_FILENO);
 						close(outfd);
 					}
-					execute_command(&e->cmd);
+					printf("HELLO!");
+					execute_command(e);
 				}
 
 				if (pipe_stdin == 0) {
@@ -163,6 +183,15 @@ execute_command_line(const struct command_line *line)
 
 				proc_wait++;
 			}
+		} else if (e->type == EXPR_TYPE_PIPE) {
+			// printf("\tPIPE\n");
+		} else if (e->type == EXPR_TYPE_AND) {
+			// printf("\tAND\n");
+		} else if (e->type == EXPR_TYPE_OR) {
+			// printf("\tOR\n");
+		}
+		else {
+			assert(false);
 		}
 		e = e->next;
 	}
@@ -181,9 +210,11 @@ execute_command_line(const struct command_line *line)
 int
 main(void)
 {
+	setvbuf(stdout, NULL, _IONBF, 0);
 	const size_t buf_size = 1024;
 	char buf[buf_size];
 	int rc;
+	int last_status = 0;
 	struct parser *p = parser_new();
 
 	while ((rc = read(STDIN_FILENO, buf, buf_size)) > 0) {
@@ -197,10 +228,10 @@ main(void)
 				printf("Error: %d\n", (int)err);
 				continue;
 			}
-			execute_command_line(line);
+			last_status = execute_command_line(line);
 			command_line_delete(line);
 		}
 	}
 	parser_delete(p);
-	return 0;
+	return last_status;
 }
