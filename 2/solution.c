@@ -90,12 +90,12 @@ execute_command(const struct expr *e) {
 static int
 execute_command_line(const struct command_line *line)
 {
-	const struct expr *e = line->head;
 	int pipefd[2];
 	int proc_wait = 1;
 	int pid;
 	int last_status = 0;
 	int pipe_stdin = 0;
+	const struct expr *e = line->head;
 
 	while (e != NULL) {
 		if (e->type == EXPR_TYPE_COMMAND) {
@@ -143,7 +143,6 @@ execute_command_line(const struct command_line *line)
 
 				else if (pid == 0) {
 					if (pipe_stdin != 0) {
-						printf("HERE 2");
 						dup2(pipe_stdin, STDIN_FILENO);
 						close(pipe_stdin);
 						pipe_stdin = 0;
@@ -151,28 +150,23 @@ execute_command_line(const struct command_line *line)
 
 					int outfd = STDOUT_FILENO;
 					if (line->out_type == OUTPUT_TYPE_FILE_NEW) {
-						printf("HERE 3");
 						outfd = open(line->out_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 					}
-					else if (line->out_type == OUTPUT_TYPE_FILE_APPEND) { 
-						printf("HERE 4");
+					if (line->out_type == OUTPUT_TYPE_FILE_APPEND) { 
 						outfd = open(line->out_file, O_APPEND | O_RDWR | O_APPEND, 0644);
 					}
 					if (e->next && e->next->type == EXPR_TYPE_PIPE) {
-						printf("HERE 5");
 						close(pipefd[0]);
 						outfd = pipefd[1];
 					}
 					if (outfd != STDOUT_FILENO) {
-						printf("HERE 6");
 						dup2(outfd, STDOUT_FILENO);
 						close(outfd);
 					}
-					printf("HELLO!");
 					execute_command(e);
 				}
 
-				if (pipe_stdin == 0) {
+				if (pipe_stdin) {
 					close(pipe_stdin);
 				}
 
